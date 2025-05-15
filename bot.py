@@ -13,12 +13,11 @@ position_size = 0.7
 cooldown_after_sl_minutes = 5
 
 telegram_token = '7752789264:AAF-0zdgHsSSYe7PS17ePYThOFP3k7AjxBY'
-telegram_chat_id = '8104629569'
+telegram_chat_id = '# --- Telegram แจ้งเตือน ---
 
-# --- Telegram แจ้งเตือน ---
 def telegram(message):
     requests.get(f'https://api.telegram.org/bot{telegram_token}/sendMessage',
-                 params={'chat_id': telegram_chat_id, 'text': message})
+                 params={'chat_id': telegram_chat_id, 'text': 
 
 # --- OKX setup ---
 exchange = ccxt.okx({
@@ -28,7 +27,7 @@ exchange = ccxt.okx({
     'enableRateLimit': True,
     'options': {'defaultType': 'swap'}
 })
-exchange.set_sandbox_mode(False)  # เปลี่ยนเป็น True ถ้าจะเทสต์
+exchange.set_sandbox_mode(False)  # เปลี่ยนเป็น True ถ้าจะทดสอบใน Sandbox
 
 last_sl_time = None
 
@@ -52,7 +51,7 @@ def is_bearish_engulfing(candles):
 def open_position(direction):
     price = fetch_price()
     side = 'buy' if direction == 'long' else 'sell'
-    params = {'tdMode': 'cross', 'side': side, 'ordType': 'market', 'posSide': direction}
+    params = {'tdMode': 'cross', 'ordType': 'market'}  # ไม่ใส่ posSide เพราะใช้ One-way Mode
 
     try:
         order = exchange.create_order(symbol, type='market', side=side, amount=position_size, params=params)
@@ -63,11 +62,11 @@ def open_position(direction):
         telegram(f"[ERROR เปิดออเดอร์] {e}")
         return None, None
 
-# --- Monitor กำไรขาดทุน ---
+# --- ติดตามสถานะ TP/SL ---
 def monitor_position(entry_price, direction, order_id):
     global last_sl_time
 
-    sl_buffer = 0.005  # 0.5%
+    sl_buffer = 0.005  # SL 0.5%
     if direction == 'long':
         sl = entry_price * (1 - sl_buffer)
         tp = entry_price + (entry_price - sl)  # RR 1:1
@@ -98,10 +97,10 @@ def monitor_position(entry_price, direction, order_id):
 
         time.sleep(10)
 
-# --- MAIN ---
+# --- MAIN LOOP ---
 def main():
     global last_sl_time
-    telegram("เริ่มทำงาน: Safe OKX Bot (Long & Short)")
+    telegram("เริ่มทำงาน: Safe OKX Bot (One-way Mode)")
 
     while True:
         try:
@@ -130,4 +129,4 @@ def main():
             time.sleep(60)
 
 if __name__ == "__main__":
-    main()
+    main()               
