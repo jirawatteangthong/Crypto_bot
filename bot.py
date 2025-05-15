@@ -3,7 +3,7 @@ import time
 import requests
 from datetime import datetime, timedelta
 
-# ตั้งค่า OKX API
+# --- ตั้งค่า ---
 api_key = '8f528085-448c-4480-a2b0-d7f72afb38ad'
 secret = '05A665CEAF8B2161483DF63CB10085D2'
 password = 'Jirawat1-'
@@ -12,13 +12,13 @@ symbol = 'BTC/USDT:USDT'
 position_size = 0.7
 cooldown_after_sl_minutes = 5
 
-# Telegram แจ้งเตือน
 telegram_token = '7752789264:AAF-0zdgHsSSYe7PS17ePYThOFP3k7AjxBY'
 telegram_chat_id = '8104629569'
 
+# --- Telegram แจ้งเตือน ---
 def telegram(message):
     requests.get(f'https://api.telegram.org/bot{telegram_token}/sendMessage',
-                 params={'chat_id': telegram_chat_id, 'text': 
+                 params={'chat_id': telegram_chat_id, 'text': message})
 
 # --- OKX setup ---
 exchange = ccxt.okx({
