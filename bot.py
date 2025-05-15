@@ -1,7 +1,6 @@
 import ccxt
 import time
 import requests
-import pandas as pd
 from datetime import datetime, timedelta
 
 # ====== Config =======
@@ -15,192 +14,101 @@ TIMEFRAME = "5m"
 LOT_SIZE = 0.7
 MAX_TRADES_PER_DAY = 5
 
+def telegram(message):
+    requests.get(f'https://api.telegram.org/bot{telegram_token}/sendMessage',
+                 params={'chat_id': telegram_chat_id, 'text': message})
+
+# เชื่อมต่อ OKX
 exchange = ccxt.okx({
-    'apiKey': API_KEY,
-    'secret': API_SECRET,
-    'password': API_PASSPHRASE,
+    'apiKey': api_key,
+    'secret': secret,
+    'password': password,
     'enableRateLimit': True,
-    'options': {'defaultType': 'swap'},
+    'options': {'defaultType': 'swap'}
 })
+exchange.set_sandbox_mode(False)  # เปลี่ยนเป็น True ถ้าจะทดสอบก่อน
 
-def send_telegram(msg):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
-        requests.post(url, data=payload)
-    except:
-        pass
+last_sl_time = None
 
-def fetch_ohlcv(limit=500):
+def fetch_price():
+    ticker = exchange.fetch_ticker(symbol)
+    return float(ticker['last'])
+
+def fetch_candles():
+    candles = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=3)
+    return candles
+
+def is_bullish_engulfing(candles):
+    c1, c2 = candles[-2], candles[-1]
+    return c1[1] > c1[4] and c2[4] > c2[1] and c2[4] > c1[1] and c2[1] < c1[4]
+
+def open_position(direction):
+    price = fetch_price()
+    side = 'buy' if direction == 'long' else 'sell'
+    params = {'tdMode': 'cross', 'side': side, 'ordType': 'market', 'posSide': direction}
+    
     try:
-        data = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=limit)
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-        return df
+        order = exchange.create_order(symbol, type='market', side=side, amount=position_size, params=params)
+        entry_price = float(order['info'].get('fillPx', price))
+        telegram(f"เปิด {side.upper()} {position_size} {symbol} ที่ราคา {entry_price}")
+        return entry_price, order['id']
     except Exception as e:
-        print("Fetch OHLCV error:", e)
-        return None
+        telegram(f"[ERROR เปิดออเดอร์] {e}")
+        return None, None
 
-def detect_swings(df):
-    df["swing_high"] = df["high"][(df["high"].shift(1) < df["high"]) & (df["high"].shift(-1) < df["high"])]
-    df["swing_low"] = df["low"][(df["low"].shift(1) > df["low"]) & (df["low"].shift(-1) > df["low"])]
-    return df
-
-def detect_bos_ob(df):
-    df = detect_swings(df)
-    structures = []
-    for i in range(10, len(df)):
-        row = df.iloc[i]
-        recent_highs = df.iloc[i-10:i]["swing_high"].dropna()
-        recent_lows = df.iloc[i-10:i]["swing_low"].dropna()
-
-        if not recent_highs.empty and row["close"] > recent_highs.max():
-            ob_row = df.iloc[i-1]
-            structures.append({
-                "time": row["datetime"],
-                "type": "BOS_UP",
-                "ob_high": ob_row["high"],
-                "ob_low": ob_row["low"]
-            })
-
-        elif not recent_lows.empty and row["close"] < recent_lows.min():
-            ob_row = df.iloc[i-1]
-            structures.append({
-                "time": row["datetime"],
-                "type": "BOS_DOWN",
-                "ob_high": ob_row["high"],
-                "ob_low": ob_row["low"]
-            })
-
-    return pd.DataFrame(structures)
-
-def get_open_position_count():
-    try:
-        positions = exchange.fetch_positions([SYMBOL])
-        for p in positions:
-            if float(p['contracts']) > 0:
-                return 1
-        return 0
-    except:
-        return 0
-
-def get_available_margin():
-    try:
-        balance = exchange.fetch_balance()
-        return balance['USDT']['free']
-    except:
-        return 0
-
-def place_order(side, amount):
-    try:
-        order = exchange.create_order(SYMBOL, 'market', side, amount)
-        send_telegram(f"เปิด {side} ออเดอร์ จำนวน {amount} {SYMBOL} ที่ราคา market")
-        return order
-    except Exception as e:
-        send_telegram(f"เกิดข้อผิดพลาดตอนเปิดออเดอร์: {e}")
-        return None
-
-def close_order(order_id):
-    try:
-        positions = exchange.fetch_positions([SYMBOL])
-        for p in positions:
-            if float(p['contracts']) > 0:
-                side = 'sell' if p['side'] == 'long' else 'buy'
-                amount = float(p['contracts'])
-                exchange.create_order(SYMBOL, 'market', side, amount)
-                send_telegram(f"ปิดออเดอร์ {order_id} แล้ว")
-                return True
-        return False
-    except Exception as e:
-        send_telegram(f"เกิดข้อผิดพลาดตอนปิดออเดอร์: {e}")
-        return False
-
-def generate_trade_signals(df, bos_df):
-    trades = []
-    now = datetime.utcnow()
-
-    for idx, bos in bos_df.iterrows():
-        ob_high = bos["ob_high"]
-        ob_low = bos["ob_low"]
-        entry_time = bos["time"]
-        direction = "buy" if bos["type"] == "BOS_UP" else "sell"
-
-        df_after = df[df["datetime"] > entry_time]
-
-        for i, row in df_after.iterrows():
-            if direction == "buy" and ob_low <= row["low"] <= ob_high:
-                entry_price = row["close"]
-                sl = ob_low * 0.999
-                tp = entry_price + 2 * (entry_price - sl)
-                trades.append({"direction": direction, "entry_price": entry_price, "sl": sl, "tp": tp})
-                break
-            elif direction == "sell" and ob_low <= row["high"] <= ob_high:
-                entry_price = row["close"]
-                sl = ob_high * 1.001
-                tp = entry_price - 2 * (sl - entry_price)
-                trades.append({"direction": direction, "entry_price": entry_price, "sl": sl, "tp": tp})
-                break
-
-    return trades
-
-def main_loop():
-    send_telegram("บอท ICT-SMC เริ่มทำงานแล้ว")
-    open_trade = None
-    trade_sl = trade_tp = 0
+def monitor_position(entry_price, sl_price, tp_price, direction, order_id):
+    global last_sl_time
 
     while True:
-        df = fetch_ohlcv()
-        if df is None or df.empty:
-            time.sleep(60)
-            continue
+        price = fetch_price()
 
-        bos_df = detect_bos_ob(df)
-        signals = generate_trade_signals(df, bos_df)
-
-        if open_trade is None:
-            if get_open_position_count() > 0:
-                time.sleep(60)
-                continue
-            if get_available_margin() < 30:
-                send_telegram("ทุนไม่พอสำหรับเปิดออเดอร์ใหม่")
-                time.sleep(60)
-                continue
-            if signals:
-                sig = signals[0]
-                side = sig["direction"]
-                trade_sl = sig["sl"]
-                trade_tp = sig["tp"]
-                order = place_order(side, LOT_SIZE)
-                if order:
-                    open_trade = {
-                        "order_id": order["id"],
-                        "side": side,
-                        "sl": trade_sl,
-                        "tp": trade_tp
-                    }
-
+        if direction == 'long':
+            if price <= sl_price:
+                telegram(f"SL ทำงาน ออเดอร์ขาดทุน\nปิดออเดอร์ {order_id}")
+                last_sl_time = datetime.utcnow()
+                break
+            elif price >= tp_price:
+                telegram(f"TP ถึงเป้า ออเดอร์กำไร\nปิดออเดอร์ {order_id}")
+                break
         else:
-            last_price = df.iloc[-1]['close']
-            if open_trade["side"] == "buy":
-                if last_price >= open_trade["tp"]:
-                    send_telegram("TP ทำงาน ออเดอร์กำไร")
-                    close_order(open_trade["order_id"])
-                    open_trade = None
-                elif last_price <= open_trade["sl"]:
-                    send_telegram("SL ทำงาน ออเดอร์ขาดทุน")
-                    close_order(open_trade["order_id"])
-                    open_trade = None
-            else:
-                if last_price <= open_trade["tp"]:
-                    send_telegram("TP ทำงาน ออเดอร์กำไร")
-                    close_order(open_trade["order_id"])
-                    open_trade = None
-                elif last_price >= open_trade["sl"]:
-                    send_telegram("SL ทำงาน ออเดอร์ขาดทุน")
-                    close_order(open_trade["order_id"])
-                    open_trade = None
+            if price >= sl_price:
+                telegram(f"SL ทำงาน ออเดอร์ขาดทุน\nปิดออเดอร์ {order_id}")
+                last_sl_time = datetime.utcnow()
+                break
+            elif price <= tp_price:
+                telegram(f"TP ถึงเป้า ออเดอร์กำไร\nปิดออเดอร์ {order_id}")
+                break
 
-        time.sleep(60)
+        time.sleep(10)
+
+def main():
+    global last_sl_time
+
+    while True:
+        try:
+            now = datetime.utcnow()
+
+            # ถ้าเพิ่ง SL ให้รอ cooldown
+            if last_sl_time and (now - last_sl_time).total_seconds() < cooldown_after_sl_minutes * 60:
+                print("รอ cooldown หลัง SL")
+                time.sleep(60)
+                continue
+
+            candles = fetch_candles()
+
+            if is_bullish_engulfing(candles):
+                entry_price, order_id = open_position('long')
+                if entry_price:
+                    sl = entry_price * 0.997  # SL ห่าง 0.3%
+                    tp = entry_price + (entry_price - sl)  # RR 1:1
+                    monitor_position(entry_price, sl, tp, 'long', order_id)
+
+            time.sleep(30)
+
+        except Exception as e:
+            telegram(f"[ERROR LOOP] {e}")
+            time.sleep(60)
 
 if __name__ == "__main__":
-    main_loop()
+    telegram("เริ่มทำงาน: Safe OKX Bot")
+    main()
