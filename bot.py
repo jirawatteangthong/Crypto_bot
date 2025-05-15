@@ -3,16 +3,18 @@ import time
 import requests
 from datetime import datetime, timedelta
 
-# ====== Config =======
-API_KEY = "8f528085-448c-4480-a2b0-d7f72afb38ad"
-API_SECRET = "05A665CEAF8B2161483DF63CB10085D2"
-API_PASSPHRASE = "Jirawat1-"
-TELEGRAM_BOT_TOKEN = "7752789264:AAF-0zdgHsSSYe7PS17ePYThOFP3k7AjxBY"
-TELEGRAM_CHAT_ID = "8104629569"
-SYMBOL = "BTC-USDT-SWAP"
-TIMEFRAME = "5m"
-LOT_SIZE = 0.7
-MAX_TRADES_PER_DAY = 5
+# ตั้งค่า OKX API
+api_key = '8f528085-448c-4480-a2b0-d7f72afb38ad'
+secret = '05A665CEAF8B2161483DF63CB10085D2'
+password = 'Jirawat1-'
+
+symbol = 'BTC/USDT:USDT'
+position_size = 0.7
+cooldown_after_sl_minutes = 5
+
+# Telegram แจ้งเตือน
+telegram_token = '7752789264:AAF-0zdgHsSSYe7PS17ePYThOFP3k7AjxBY'
+telegram_chat_id = '8104629569'
 
 def telegram(message):
     requests.get(f'https://api.telegram.org/bot{telegram_token}/sendMessage',
