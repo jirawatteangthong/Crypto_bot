@@ -13,11 +13,12 @@ position_size = 0.7
 cooldown_after_sl_minutes = 5
 
 telegram_token = '7752789264:AAF-0zdgHsSSYe7PS17ePYThOFP3k7AjxBY'
-telegram_chat_id = '# --- Telegram แจ้งเตือน ---
+telegram_chat_id = '8104629569'
 
+# --- Telegram แจ้งเตือน ---
 def telegram(message):
     requests.get(f'https://api.telegram.org/bot{telegram_token}/sendMessage',
-                 params={'chat_id': telegram_chat_id, 'text': 
+                 params={'chat_id': telegram_chat_id, 'text': message})
 
 # --- OKX setup ---
 exchange = ccxt.okx({
@@ -129,4 +130,4 @@ def main():
             time.sleep(60)
 
 if __name__ == "__main__":
-    main()               
+    main()
